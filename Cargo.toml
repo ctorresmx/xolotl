@@ -1,0 +1,14 @@
+[package]
+name = "xolotl"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+description = "Lightweight, environment-aware service discovery and endpoint registry"
+authors = ["Carlos Torres <jctorresp@icloud.com>"]
+
+[dependencies]
+axum = "0.8.4"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.45.1", features = ["full"] }
+uuid = { version = "1.17.0", features = ["v4"] }

@@ -9,11 +9,11 @@ pub fn services_routes() -> Router {
         .route("/", get(list_services))
         .route("/", post(register_service))
         .route("/{name}/{environment}", get(get_service))
-        .route("/{name}", delete(deregister_service))
         .route(
             "/{name}/{environment}",
             delete(deregister_service_in_environment),
         )
+        .route("/{name}", delete(deregister_service))
 }
 
 async fn list_services() -> Json<String> {

@@ -3,6 +3,8 @@ name = "xolotl"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
+description = "Lightweight, environment-aware service discovery and endpoint registry"
+authors = ["Carlos Torres <jctorresp@icloud.com>"]
 
 [dependencies]
 axum = "0.8.4"

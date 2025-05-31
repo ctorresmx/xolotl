@@ -8,8 +8,12 @@ pub fn services_routes() -> Router {
     Router::new()
         .route("/", get(list_services))
         .route("/", post(register_service))
-        .route("/{name}/{env}", get(get_service))
+        .route("/{name}/{environment}", get(get_service))
         .route("/{name}", delete(deregister_service))
+        .route(
+            "/{name}/{environment}",
+            delete(deregister_service_in_environment),
+        )
 }
 
 async fn list_services() -> Json<String> {
@@ -20,10 +24,16 @@ async fn register_service() -> Json<String> {
     Json(format!("Registering service"))
 }
 
-async fn get_service(Path((name, env)): Path<(String, String)>) -> Json<String> {
-    Json(format!("Retrieving {} in {}", name, env))
+async fn get_service(Path((name, environment)): Path<(String, String)>) -> Json<String> {
+    Json(format!("Retrieving {} in {}", name, environment))
 }
 
 async fn deregister_service(Path(name): Path<String>) -> Json<String> {
     Json(format!("Deregistering service {}", name))
+}
+
+async fn deregister_service_in_environment(
+    Path((name, environment)): Path<(String, String)>,
+) -> Json<String> {
+    Json(format!("Deregistering service {} in {}", name, environment))
 }

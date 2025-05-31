@@ -13,7 +13,7 @@ The service provides a RESTful API for service registration and discovery with t
 ```json
 {
   "name": "string", // Service name
-  "env": "string", // Environment (e.g., production, staging)
+  "environment": "string", // Environment (e.g., production, staging)
   "address": "string", // Service address (e.g., "http://my-service:8000")
   "tags": ["string"] // Optional tags for additional metadata
 }
@@ -22,5 +22,5 @@ The service provides a RESTful API for service registration and discovery with t
 #### API Endpoints for Service Registration and Discovery
 - `POST /services`: Register a service with metadata.
 - `GET /services`: List all registered services across all environments.
-- `GET /services/{name}/{env}`: Discover services by name and environment.
+- `GET /services/{name}/{environment}`: Discover services by name and environment.
 - `DELETE /services/{name}`: Deregister a service.

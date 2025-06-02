@@ -9,7 +9,7 @@ pub struct ServiceEntry {
 pub trait ServiceRegistry {
     fn register(&mut self, entry: ServiceEntry) -> Result<(), RegistryError>;
     fn resolve(&self, name: &str, environment: &str) -> Option<ServiceEntry>;
-    fn unregister(&mut self, name: &str, environment: &str) -> Result<(), RegistryError>;
+    fn deregister(&mut self, name: &str, environment: Option<&str>) -> Result<(), RegistryError>;
     fn list(&self) -> Vec<ServiceEntry>;
 }
 

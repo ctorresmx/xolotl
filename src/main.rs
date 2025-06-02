@@ -2,6 +2,8 @@ use api::services::services_routes;
 use axum::Router;
 
 mod api;
+mod model;
+mod registry;
 
 #[tokio::main]
 async fn main() {

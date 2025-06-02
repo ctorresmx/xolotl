@@ -12,6 +12,16 @@ impl InMemoryRegistry {
         }
     }
 
+    /// Generates a unique key for a service by combining the service name and environment.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the service
+    /// * `environment` - The environment where the service is running (e.g., "dev", "prod")
+    ///
+    /// # Returns
+    ///
+    /// A string in the format `name:environment` that uniquely identifies a service entry
     pub fn generate_key(name: &str, environment: &str) -> String {
         format!("{}:{}", name, environment)
     }

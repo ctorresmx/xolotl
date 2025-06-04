@@ -1,8 +1,11 @@
-#[derive(Debug, Clone)]
+use crate::model::service_address::ServiceAddress;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceEntry {
     pub name: String,
     pub environment: String,
-    pub address: String,
+    pub address: ServiceAddress,
     pub tags: Vec<String>,
 }
 

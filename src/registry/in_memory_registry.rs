@@ -29,7 +29,7 @@ impl InMemoryRegistry {
 
 impl ServiceRegistry for InMemoryRegistry {
     fn register(&mut self, entry: ServiceEntry) -> Result<(), RegistryError> {
-        let key = Self::generate_key(&entry.name, &entry.environment);
+        let key = Self::generate_key(&entry.service_name, &entry.environment);
         if self.services.contains_key(&key) {
             return Err(RegistryError::AlreadyExists);
         }
@@ -38,15 +38,19 @@ impl ServiceRegistry for InMemoryRegistry {
         Ok(())
     }
 
-    fn resolve(&self, name: &str, environment: &str) -> Option<ServiceEntry> {
-        let key = Self::generate_key(name, environment);
+    fn resolve(&self, service_name: &str, environment: &str) -> Option<ServiceEntry> {
+        let key = Self::generate_key(service_name, environment);
         self.services.get(&key).cloned()
     }
 
-    fn deregister(&mut self, name: &str, environment: Option<&str>) -> Result<(), RegistryError> {
+    fn deregister(
+        &mut self,
+        service_name: &str,
+        environment: Option<&str>,
+    ) -> Result<(), RegistryError> {
         if let Some(env) = environment {
             // Remove a specific service entry
-            let key = Self::generate_key(name, env);
+            let key = Self::generate_key(service_name, env);
             if self.services.remove(&key).is_some() {
                 Ok(())
             } else {
@@ -57,7 +61,7 @@ impl ServiceRegistry for InMemoryRegistry {
             let keys_to_remove: Vec<String> = self
                 .services
                 .keys()
-                .filter(|k| k.starts_with(&format!("{}:", name)))
+                .filter(|k| k.starts_with(&format!("{}:", service_name)))
                 .cloned()
                 .collect();
 
@@ -83,15 +87,18 @@ mod tests {
     use super::*;
 
     fn create_test_entry(name: &str, env: &str) -> ServiceEntry {
-        ServiceEntry {
-            name: name.to_string(),
-            environment: env.to_string(),
-            address: crate::model::service_address::ServiceAddress::from_string(format!(
+        let mut tags = HashMap::new();
+        tags.insert("type".to_string(), "test".to_string());
+
+        ServiceEntry::new(
+            name.to_string(),
+            env.to_string(),
+            crate::model::service_address::ServiceAddress::from_string(format!(
                 "http://{}_{}.example.com",
                 name, env
             )),
-            tags: vec!["test".to_string()],
-        }
+            tags,
+        )
     }
 
     #[test]
@@ -111,12 +118,12 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify the entry was stored
-        let stored = registry.resolve(&entry.name, &entry.environment);
+        let stored = registry.resolve(&entry.service_name, &entry.environment);
         assert!(stored.is_some());
         let stored = stored.unwrap();
-        assert_eq!(stored.name, "service1");
+        assert_eq!(stored.service_name, "service1");
         assert_eq!(stored.environment, "dev");
-        assert_eq!(stored.address.as_str(), "http://service1_dev.example.com");
+        assert_eq!(stored.address_str(), "http://service1_dev.example.com");
     }
 
     #[test]
@@ -147,7 +154,7 @@ mod tests {
         let result = registry.resolve("service1", "dev");
         assert!(result.is_some());
         let resolved = result.unwrap();
-        assert_eq!(resolved.name, "service1");
+        assert_eq!(resolved.service_name, "service1");
         assert_eq!(resolved.environment, "dev");
     }
 
@@ -248,7 +255,7 @@ mod tests {
         assert_eq!(services.len(), 3);
 
         // Verify all expected services are in the list
-        let names: Vec<String> = services.iter().map(|s| s.name.clone()).collect();
+        let names: Vec<String> = services.iter().map(|s| s.service_name.clone()).collect();
         assert!(names.contains(&"service1".to_string()));
         assert!(names.contains(&"service2".to_string()));
 

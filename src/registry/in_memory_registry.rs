@@ -86,7 +86,10 @@ mod tests {
         ServiceEntry {
             name: name.to_string(),
             environment: env.to_string(),
-            address: format!("http://{}_{}.example.com", name, env),
+            address: crate::model::service_address::ServiceAddress::from_string(format!(
+                "http://{}_{}.example.com",
+                name, env
+            )),
             tags: vec!["test".to_string()],
         }
     }
@@ -113,7 +116,7 @@ mod tests {
         let stored = stored.unwrap();
         assert_eq!(stored.name, "service1");
         assert_eq!(stored.environment, "dev");
-        assert_eq!(stored.address, "http://service1_dev.example.com");
+        assert_eq!(stored.address.as_str(), "http://service1_dev.example.com");
     }
 
     #[test]

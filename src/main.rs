@@ -10,7 +10,7 @@ mod registry;
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(short, long, default_value = "0.0.0.0")]
-    ip: String,
+    address: String,
 
     #[arg(short, long, default_value_t = 8000)]
     port: u16,
@@ -20,7 +20,7 @@ struct Args {
 async fn main() {
     let args = Args::parse();
     let app = create_app();
-    let bind_address = format!("{}:{}", args.ip, args.port);
+    let bind_address = format!("{}:{}", args.address, args.port);
 
     let listener = match tokio::net::TcpListener::bind(&bind_address).await {
         Ok(listener) => listener,

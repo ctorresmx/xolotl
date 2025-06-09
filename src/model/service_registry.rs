@@ -45,14 +45,14 @@ impl ServiceEntry {
 }
 
 pub trait ServiceRegistry {
+    fn list(&self) -> Vec<ServiceEntry>;
     fn register(&mut self, entry: ServiceEntry) -> Result<(), RegistryError>;
-    fn resolve(&self, service_name: &str, environment: &str) -> Option<ServiceEntry>;
+    fn resolve(&self, service_name: &str, environment: &str) -> Vec<ServiceEntry>;
     fn deregister(
         &mut self,
         service_name: &str,
         environment: Option<&str>,
     ) -> Result<(), RegistryError>;
-    fn list(&self) -> Vec<ServiceEntry>;
 }
 
 #[derive(Debug)]

@@ -11,36 +11,30 @@ impl InMemoryRegistry {
             services: HashMap::new(),
         }
     }
-
-    /// Generates a unique key for a service by combining the service name and environment.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the service
-    /// * `environment` - The environment where the service is running (e.g., "dev", "prod")
-    ///
-    /// # Returns
-    ///
-    /// A string in the format `name:environment` that uniquely identifies a service entry
-    pub fn generate_key(name: &str, environment: &str) -> String {
-        format!("{}:{}", name, environment)
-    }
 }
 
 impl ServiceRegistry for InMemoryRegistry {
+    fn list(&self) -> Vec<ServiceEntry> {
+        self.services.values().cloned().collect()
+    }
+
     fn register(&mut self, entry: ServiceEntry) -> Result<(), RegistryError> {
-        let key = Self::generate_key(&entry.service_name, &entry.environment);
-        if self.services.contains_key(&key) {
+        if self.services.contains_key(&entry.id) {
             return Err(RegistryError::AlreadyExists);
         }
 
-        self.services.insert(key, entry);
+        self.services.insert(entry.id.clone(), entry);
         Ok(())
     }
 
-    fn resolve(&self, service_name: &str, environment: &str) -> Option<ServiceEntry> {
-        let key = Self::generate_key(service_name, environment);
-        self.services.get(&key).cloned()
+    fn resolve(&self, service_name: &str, environment: &str) -> Vec<ServiceEntry> {
+        self.services
+            .values()
+            .filter(|service| {
+                service.service_name == service_name && service.environment == environment
+            })
+            .cloned()
+            .collect()
     }
 
     fn deregister(
@@ -48,37 +42,33 @@ impl ServiceRegistry for InMemoryRegistry {
         service_name: &str,
         environment: Option<&str>,
     ) -> Result<(), RegistryError> {
-        if let Some(env) = environment {
-            // Remove a specific service entry
-            let key = Self::generate_key(service_name, env);
-            if self.services.remove(&key).is_some() {
-                Ok(())
-            } else {
-                Err(RegistryError::NotFound)
-            }
+        let ids_to_remove: Vec<String> = if let Some(env) = environment {
+            // Remove services matching specific service name and environment
+            self.services
+                .iter()
+                .filter(|(_, service)| {
+                    service.service_name == service_name && service.environment == env
+                })
+                .map(|(id, _)| id.clone())
+                .collect()
         } else {
-            // Remove all entries for the given name across all environments
-            let keys_to_remove: Vec<String> = self
-                .services
-                .keys()
-                .filter(|k| k.starts_with(&format!("{}:", service_name)))
-                .cloned()
-                .collect();
+            // Remove all services matching the service name across all environments
+            self.services
+                .iter()
+                .filter(|(_, service)| service.service_name == service_name)
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
 
-            if keys_to_remove.is_empty() {
-                return Err(RegistryError::NotFound);
-            }
-
-            for key in keys_to_remove {
-                self.services.remove(&key);
-            }
-
-            Ok(())
+        if ids_to_remove.is_empty() {
+            return Err(RegistryError::NotFound);
         }
-    }
 
-    fn list(&self) -> Vec<ServiceEntry> {
-        self.services.values().cloned().collect()
+        for id in ids_to_remove {
+            self.services.remove(&id);
+        }
+
+        Ok(())
     }
 }
 
@@ -102,14 +92,6 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_key() {
-        assert_eq!(
-            InMemoryRegistry::generate_key("service1", "dev"),
-            "service1:dev"
-        );
-    }
-
-    #[test]
     fn test_register_success() {
         let mut registry = InMemoryRegistry::new();
         let entry = create_test_entry("service1", "dev");
@@ -119,8 +101,8 @@ mod tests {
 
         // Verify the entry was stored
         let stored = registry.resolve(&entry.service_name, &entry.environment);
-        assert!(stored.is_some());
-        let stored = stored.unwrap();
+        assert_eq!(stored.len(), 1);
+        let stored = &stored[0];
         assert_eq!(stored.service_name, "service1");
         assert_eq!(stored.environment, "dev");
         assert_eq!(stored.address_str(), "http://service1_dev.example.com");
@@ -152,8 +134,8 @@ mod tests {
         registry.register(entry.clone()).unwrap();
 
         let result = registry.resolve("service1", "dev");
-        assert!(result.is_some());
-        let resolved = result.unwrap();
+        assert_eq!(result.len(), 1);
+        let resolved = &result[0];
         assert_eq!(resolved.service_name, "service1");
         assert_eq!(resolved.environment, "dev");
     }
@@ -163,7 +145,7 @@ mod tests {
         let registry = InMemoryRegistry::new();
 
         let result = registry.resolve("nonexistent", "dev");
-        assert!(result.is_none());
+        assert!(result.is_empty());
     }
 
     #[test]
@@ -183,8 +165,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify only the dev environment was removed
-        assert!(registry.resolve("service1", "dev").is_none());
-        assert!(registry.resolve("service1", "prod").is_some());
+        assert!(registry.resolve("service1", "dev").is_empty());
+        assert_eq!(registry.resolve("service1", "prod").len(), 1);
     }
 
     #[test]
@@ -207,11 +189,11 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify all service1 entries were removed
-        assert!(registry.resolve("service1", "dev").is_none());
-        assert!(registry.resolve("service1", "prod").is_none());
+        assert!(registry.resolve("service1", "dev").is_empty());
+        assert!(registry.resolve("service1", "prod").is_empty());
 
         // Verify service2 still exists
-        assert!(registry.resolve("service2", "dev").is_some());
+        assert_eq!(registry.resolve("service2", "dev").len(), 1);
     }
 
     #[test]

@@ -2,25 +2,61 @@
 Xolotl is a lightweight, environment-aware service discovery and endpoint registry designed for distributed systems.
 
 ## Features
-- **Register services**: Easily register services with metadata.
-- **Discover services**: Find services based on metadata and environment.
-- **Lightweight**: Minimal dependencies and easy to integrate.
+- **Environment-aware**: Services are isolated by environment (dev, staging, prod)
+- **Service registration**: Register services with flexible address types and metadata
+- **Service discovery**: Find services by name and environment
+- **RESTful API**: Simple HTTP endpoints for all operations
+- **Lightweight**: Minimal dependencies and easy to integrate
 
-### API Endpoints
+## Getting Started
+
+### Installation
+```bash
+cargo build
+```
+
+### Running the Server
+```bash
+# Default (0.0.0.0:8000)
+cargo run
+
+# Custom address
+cargo run -- --address 127.0.0.1 --port 3000
+```
+
+### Testing
+```bash
+cargo test
+```
+
+## API Reference
 
 The service provides a RESTful API for service registration and discovery with the following data model:
 
 ```json
 {
-  "name": "string", // Service name
-  "environment": "string", // Environment (e.g., production, staging)
-  "address": "string", // Service address (e.g., "http://my-service:8000")
-  "tags": ["string"] // Optional tags for additional metadata
+  "id": "uuid-string",
+  "service_name": "string",
+  "environment": "string", 
+  "address": {
+    "type": "String",
+    "value": "http://my-service:8000" // Address later could become different types like `http`, `grpc`, etc.
+  },
+  "tags": {
+    "version": "1.0.0",
+    "team": "backend"
+  },
+  "registered_at": 1234567890
 }
 ```
 
-#### API Endpoints for Service Registration and Discovery
-- `POST /services`: Register a service with metadata.
-- `GET /services`: List all registered services across all environments.
-- `GET /services/{name}/{environment}`: Discover services by name and environment.
-- `DELETE /services/{name}`: Deregister a service.
+### Endpoints
+- `POST /services`: Register a service
+- `GET /services`: List all registered services across all environments
+- `GET /services/{name}/{environment}`: Get services by name and environment
+- `DELETE /services/{name}`: Remove all environments for a service
+- `DELETE /services/{name}/{environment}`: Remove specific service environment
+
+## Architecture
+
+Services are uniquely identified by their UUID `id`, allowing multiple instances of the same service to run in the same environment with different addresses and configurations.

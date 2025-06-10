@@ -1,0 +1,30 @@
+# Rust build artifacts
+target/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+LICENSE
+CLAUDE.md
+
+# Test files
+test.http
+tests/
+
+# Docker files
+Dockerfile
+.dockerignore
+docker-compose.yml

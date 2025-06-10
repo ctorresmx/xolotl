@@ -36,7 +36,7 @@ Xolotl can be easily deployed using Docker and Docker Compose.
 ### Building the Docker Image
 ```bash
 # Build the image
-docker-compose build
+docker compose build
 
 # Or build directly with Docker
 docker build -t xolotl:latest .

@@ -29,6 +29,44 @@ cargo run -- --address 127.0.0.1 --port 3000
 cargo test
 ```
 
+## Docker
+
+Xolotl can be easily deployed using Docker and Docker Compose.
+
+### Building the Docker Image
+```bash
+# Build the image
+docker-compose build
+
+# Or build directly with Docker
+docker build -t xolotl:latest .
+```
+
+### Running with Docker Compose
+```bash
+# Start the service
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop the service
+docker compose down
+```
+
+The Docker Compose configuration includes:
+- **Health checks**: Automatically monitors service health
+- **Port mapping**: Exposes the service on port 8000
+- **Environment variables**: Configurable logging levels
+- **Restart policy**: Automatically restarts on failure
+
+### Configuration
+The Docker setup uses the following default configuration:
+- **Port**: 8000 (configurable via docker-compose.yml)
+- **Environment**: `RUST_LOG=info` for logging
+- **User**: Runs as non-root user for security
+- **Image size**: ~15MB (Alpine-based multi-stage build)
+
 ## API Reference
 
 The service provides a RESTful API for service registration and discovery with the following data model:

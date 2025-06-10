@@ -75,6 +75,8 @@ impl ServiceRegistry for InMemoryRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
 
     fn create_test_entry(name: &str, env: &str) -> ServiceEntry {
         let mut tags = HashMap::new();
@@ -83,10 +85,7 @@ mod tests {
         ServiceEntry::new(
             name.to_string(),
             env.to_string(),
-            crate::model::service_address::ServiceAddress::from_string(format!(
-                "http://{}_{}.example.com",
-                name, env
-            )),
+            format!("http://{}_{}.example.com", name, env),
             tags,
         )
     }
@@ -118,6 +117,26 @@ mod tests {
         assert!(result.is_ok());
 
         // Try to register again with the same name and environment
+        let result = registry.register(entry);
+        assert!(result.is_err());
+        match result {
+            Err(RegistryError::AlreadyExists) => {}
+            _ => panic!("Expected AlreadyExists error"),
+        }
+    }
+
+    #[test]
+    fn test_register_same_uuid_twice() {
+        let mut registry = InMemoryRegistry::new();
+
+        // Create an entry manually
+        let entry = create_test_entry("service1", "dev");
+
+        // Register first time
+        let result = registry.register(entry.clone());
+        assert!(result.is_ok());
+
+        // Try to register the exact same entry (same UUID) - should fail
         let result = registry.register(entry);
         assert!(result.is_err());
         match result {
@@ -244,5 +263,133 @@ mod tests {
         let envs: Vec<String> = services.iter().map(|s| s.environment.clone()).collect();
         assert!(envs.contains(&"dev".to_string()));
         assert!(envs.contains(&"prod".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_registry_operations() {
+        let registry = Arc::new(RwLock::new(InMemoryRegistry::new()));
+
+        // Spawn multiple concurrent tasks
+        let mut handles = vec![];
+
+        // Register services concurrently
+        for i in 0..10 {
+            let registry_clone = registry.clone();
+            let handle = tokio::spawn(async move {
+                let mut reg = registry_clone.write().await;
+                let entry = create_test_entry(&format!("service{}", i), "dev");
+                reg.register(entry)
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all registrations to complete
+        let mut success_count = 0;
+        for handle in handles {
+            if handle.await.unwrap().is_ok() {
+                success_count += 1;
+            }
+        }
+
+        assert_eq!(success_count, 10);
+
+        // Verify all services were registered
+        let reg = registry.read().await;
+        assert_eq!(reg.list().len(), 10);
+    }
+
+    #[test]
+    fn test_registry_with_special_characters() {
+        let mut registry = InMemoryRegistry::new();
+
+        // Test with special characters in service names and environments
+        let mut tags = HashMap::new();
+        tags.insert("special-key".to_string(), "special@value#123".to_string());
+
+        let entry = ServiceEntry::new(
+            "service-with-dashes_and_underscores".to_string(),
+            "dev-environment_v1.2".to_string(),
+            "http://my-service.example.com:8080/api/v1".to_string(),
+            tags,
+        );
+
+        let result = registry.register(entry.clone());
+        assert!(result.is_ok());
+
+        let resolved = registry.resolve(&entry.service_name, &entry.environment);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].service_name,
+            "service-with-dashes_and_underscores"
+        );
+        assert_eq!(resolved[0].environment, "dev-environment_v1.2");
+    }
+
+    #[test]
+    fn test_registry_empty_tags() {
+        let mut registry = InMemoryRegistry::new();
+
+        let entry = ServiceEntry::new(
+            "no-tags-service".to_string(),
+            "prod".to_string(),
+            "http://simple.example.com".to_string(),
+            HashMap::new(),
+        );
+
+        let result = registry.register(entry.clone());
+        assert!(result.is_ok());
+
+        let resolved = registry.resolve(&entry.service_name, &entry.environment);
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved[0].tags.is_empty());
+    }
+
+    #[test]
+    fn test_registry_unicode_values() {
+        let mut registry = InMemoryRegistry::new();
+
+        let mut tags = HashMap::new();
+        tags.insert("description".to_string(), "服务描述".to_string());
+        tags.insert("owner".to_string(), "José María".to_string());
+
+        let entry = ServiceEntry::new(
+            "unicode-service".to_string(),
+            "测试环境".to_string(),
+            "http://unicode.example.com".to_string(),
+            tags.clone(),
+        );
+
+        let result = registry.register(entry.clone());
+        assert!(result.is_ok());
+
+        let resolved = registry.resolve(&entry.service_name, &entry.environment);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].tags.get("description").unwrap(), "服务描述");
+        assert_eq!(resolved[0].tags.get("owner").unwrap(), "José María");
+    }
+
+    #[test]
+    fn test_deregister_partial_matches() {
+        let mut registry = InMemoryRegistry::new();
+
+        // Register services with similar names
+        registry
+            .register(create_test_entry("service", "dev"))
+            .unwrap();
+        registry
+            .register(create_test_entry("service1", "dev"))
+            .unwrap();
+        registry
+            .register(create_test_entry("service-extended", "dev"))
+            .unwrap();
+
+        // Deregister only "service" - should not affect others
+        let result = registry.deregister("service", Some("dev"));
+        assert!(result.is_ok());
+
+        // Verify only the exact match was removed
+        assert!(registry.resolve("service", "dev").is_empty());
+        assert_eq!(registry.resolve("service1", "dev").len(), 1);
+        assert_eq!(registry.resolve("service-extended", "dev").len(), 1);
     }
 }

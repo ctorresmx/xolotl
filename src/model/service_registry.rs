@@ -19,7 +19,7 @@ impl ServiceEntry {
     pub fn new(
         service_name: String,
         environment: String,
-        address: ServiceAddress,
+        address: String,
         tags: HashMap<String, String>,
     ) -> Self {
         let id = Uuid::new_v4().to_string();
@@ -32,7 +32,7 @@ impl ServiceEntry {
             id,
             service_name,
             environment,
-            address,
+            address: ServiceAddress::String(address),
             tags,
             registered_at,
         }
@@ -44,7 +44,7 @@ impl ServiceEntry {
     }
 }
 
-pub trait ServiceRegistry {
+pub trait ServiceRegistry: Sync + Send + 'static {
     fn list(&self) -> Vec<ServiceEntry>;
     fn register(&mut self, entry: ServiceEntry) -> Result<(), RegistryError>;
     fn resolve(&self, service_name: &str, environment: &str) -> Vec<ServiceEntry>;
@@ -65,7 +65,6 @@ pub enum RegistryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::service_address::ServiceAddress;
     use std::collections::HashMap;
 
     #[test]
@@ -74,11 +73,10 @@ mod tests {
         tags.insert("type".to_string(), "api".to_string());
         tags.insert("version".to_string(), "v1".to_string());
 
-        let address = ServiceAddress::from_string("https://api.example.com:443".to_string());
         let entry = ServiceEntry::new(
             "my-service".to_string(),
             "production".to_string(),
-            address,
+            "https://api.example.com:443".to_string(),
             tags.clone(),
         );
 
@@ -102,15 +100,46 @@ mod tests {
         let mut tags = HashMap::new();
         tags.insert("type".to_string(), "api".to_string());
 
-        let address = ServiceAddress::from_string("https://api.example.com:443".to_string());
         let entry = ServiceEntry::new(
             "my-service".to_string(),
             "production".to_string(),
-            address,
+            "https://api.example.com:443".to_string(),
             tags,
         );
 
         assert_eq!(entry.address_str(), "https://api.example.com:443");
         assert_eq!(entry.address_str(), entry.address.as_str());
+    }
+
+    #[test]
+    fn test_registry_error_internal_error() {
+        let error = RegistryError::InternalError("Database connection failed".to_string());
+
+        // Test that we can match on it (ensures it's not dead code)
+        match error {
+            RegistryError::InternalError(msg) => {
+                assert_eq!(msg, "Database connection failed");
+            }
+            _ => panic!("Expected InternalError variant"),
+        }
+
+        // Test Debug formatting
+        let error = RegistryError::InternalError("Test error".to_string());
+        let debug_str = format!("{:?}", error);
+        assert!(debug_str.contains("InternalError"));
+        assert!(debug_str.contains("Test error"));
+    }
+
+    #[test]
+    fn test_registry_error_variants() {
+        // Test all error variants to ensure they work correctly
+        let already_exists = RegistryError::AlreadyExists;
+        let not_found = RegistryError::NotFound;
+        let internal_error = RegistryError::InternalError("Internal error".to_string());
+
+        // Verify they have different discriminants
+        assert!(matches!(already_exists, RegistryError::AlreadyExists));
+        assert!(matches!(not_found, RegistryError::NotFound));
+        assert!(matches!(internal_error, RegistryError::InternalError(_)));
     }
 }

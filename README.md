@@ -1,5 +1,5 @@
 # Xolotl
-Xolotl is a lightweight, environment-aware service discovery and endpoint registry designed for distributed systems.
+Xolotl is a lightweight, environment-aware service discovery and endpoint registry designed for distributed systems in Rust.
 
 ## Features
 - **Environment-aware**: Services are isolated by environment (dev, staging, prod)

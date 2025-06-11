@@ -59,6 +59,7 @@ pub trait ServiceRegistry: Sync + Send + 'static {
 pub enum RegistryError {
     AlreadyExists,
     NotFound,
+    #[allow(dead_code)]
     InternalError(String),
 }
 

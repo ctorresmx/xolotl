@@ -3,7 +3,7 @@ use std::process::Command;
 #[test]
 fn test_binary_help() {
     let output = Command::new("cargo")
-        .args(&["run", "--bin", "xolotl", "--", "--help"])
+        .args(["run", "--bin", "xolotl", "--", "--help"])
         .output()
         .expect("Failed to execute command");
 
@@ -17,7 +17,7 @@ fn test_binary_help() {
 #[test]
 fn test_binary_version() {
     let output = Command::new("cargo")
-        .args(&["run", "--bin", "xolotl", "--", "--version"])
+        .args(["run", "--bin", "xolotl", "--", "--version"])
         .output()
         .expect("Failed to execute command");
 

@@ -8,6 +8,7 @@ pub enum ServiceAddress {
 
 impl ServiceAddress {
     /// Creates a new ServiceAddress from a String
+    #[allow(dead_code)]
     pub fn from_string(address: String) -> Self {
         ServiceAddress::String(address)
     }
@@ -20,6 +21,7 @@ impl ServiceAddress {
     }
 
     /// Attempts to extract the port from the address
+    #[allow(dead_code)]
     pub fn extract_port(&self) -> Option<u16> {
         match self {
             ServiceAddress::String(addr) => {
@@ -38,7 +40,7 @@ impl ServiceAddress {
                     }
 
                     // Parse the port section
-                    return host_parts[1].split('/').next()?.parse::<u16>().ok();
+                    host_parts[1].split('/').next()?.parse::<u16>().ok()
                 } else {
                     // No protocol, check for direct host:port format
                     let parts: Vec<&str> = addr.split(':').collect();
@@ -46,13 +48,14 @@ impl ServiceAddress {
                         return None;
                     }
 
-                    return parts[1].split('/').next()?.parse::<u16>().ok();
+                    parts[1].split('/').next()?.parse::<u16>().ok()
                 }
             }
         }
     }
 
     /// Checks if the address uses a secure protocol (https, wss, etc.)
+    #[allow(dead_code)]
     pub fn is_secure(&self) -> bool {
         match self {
             ServiceAddress::String(addr) => {

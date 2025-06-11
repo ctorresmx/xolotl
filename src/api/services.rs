@@ -70,20 +70,20 @@ async fn register_service(
         payload.tags.unwrap_or_default(),
     ));
 
-    return match registering_result {
+    match registering_result {
         Ok(_) => Ok(Json(format!(
             "Successfully registered service {} in {}",
             service_name, service_environment,
         ))),
         Err(register_error) => match register_error {
-            RegistryError::AlreadyExists => return Err(StatusCode::CONFLICT),
+            RegistryError::AlreadyExists => Err(StatusCode::CONFLICT),
             RegistryError::InternalError(msg) => {
                 eprintln!("Internal error during registration: {}", msg);
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
             }
-            _ => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+            _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
         },
-    };
+    }
 }
 
 async fn get_service(
@@ -121,12 +121,12 @@ async fn deregister_service(
     match result {
         Ok(_) => Ok(Json(format!("Successfully deregistered service {}", name))),
         Err(register_error) => match register_error {
-            RegistryError::NotFound => return Err(StatusCode::NOT_FOUND),
+            RegistryError::NotFound => Err(StatusCode::NOT_FOUND),
             RegistryError::InternalError(msg) => {
                 eprintln!("Internal error during deregistration: {}", msg);
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
             }
-            _ => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+            _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
         },
     }
 }
@@ -145,12 +145,12 @@ async fn deregister_service_in_environment(
             name, environment
         ))),
         Err(register_error) => match register_error {
-            RegistryError::NotFound => return Err(StatusCode::NOT_FOUND),
+            RegistryError::NotFound => Err(StatusCode::NOT_FOUND),
             RegistryError::InternalError(msg) => {
                 eprintln!("Internal error during deregistration: {}", msg);
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
             }
-            _ => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+            _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
         },
     }
 }

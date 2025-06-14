@@ -4,7 +4,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -27,6 +27,12 @@ struct ServiceEntryResponse {
     tags: HashMap<String, String>,
 }
 
+#[derive(Deserialize)]
+struct HeartbeatRequest {
+    service_name: String,
+    environment: String,
+}
+
 pub fn services_routes() -> Router<Arc<RwLock<dyn ServiceRegistry>>> {
     Router::new()
         .route("/", get(list_services))
@@ -37,6 +43,26 @@ pub fn services_routes() -> Router<Arc<RwLock<dyn ServiceRegistry>>> {
             delete(deregister_service_in_environment),
         )
         .route("/{name}", delete(deregister_service))
+        .route("/heartbeat", put(register_heartbeat))
+}
+
+async fn register_heartbeat(
+    State(registry): State<Arc<RwLock<dyn ServiceRegistry>>>,
+    Json(payload): Json<HeartbeatRequest>,
+) -> Result<Json<String>, StatusCode> {
+    let mut registry = registry.write().await;
+    let heartbeat_result = registry.heartbeat(&payload.service_name, &payload.environment);
+
+    match heartbeat_result {
+        Ok(_) => Ok(Json(format!(
+            "Heartbeat received for service {} in {}",
+            &payload.service_name, &payload.environment
+        ))),
+        Err(register_error) => match register_error {
+            RegistryError::NotFound => Err(StatusCode::NOT_FOUND),
+            _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        },
+    }
 }
 
 async fn list_services(
@@ -212,6 +238,60 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("Successfully registered service test-service in dev")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_register_service_heartbeat() {
+        let app = create_test_app();
+
+        let payload = json!({
+            "service_name": "test-service",
+            "environment": "dev",
+            "address": "http://localhost:8080",
+            "tags": {
+                "version": "1.0.0",
+                "team": "backend"
+            }
+        });
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        let (status, response) = send_request(app.clone(), request).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            response
+                .as_str()
+                .unwrap()
+                .contains("Successfully registered service test-service in dev")
+        );
+
+        let payload = json!({
+            "service_name": "test-service",
+            "environment": "dev",
+        });
+
+        let request = Request::builder()
+            .method(Method::PUT)
+            .uri("/heartbeat")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        let (status, response) = send_request(app, request).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            response
+                .as_str()
+                .unwrap()
+                .contains("Heartbeat received for service test-service in dev")
         );
     }
 

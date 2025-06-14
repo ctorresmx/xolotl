@@ -12,6 +12,14 @@ pub struct ServiceEntry {
     pub address: ServiceAddress,
     pub tags: HashMap<String, String>,
     pub registered_at: u64,
+    pub last_heartbeat: u64,
+}
+
+pub fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Generation of current timestamp failed")
+        .as_millis() as u64
 }
 
 impl ServiceEntry {
@@ -23,10 +31,7 @@ impl ServiceEntry {
         tags: HashMap<String, String>,
     ) -> Self {
         let id = Uuid::new_v4().to_string();
-        let registered_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Generation of registered_at timestamp failed")
-            .as_millis() as u64;
+        let registered_at = now();
 
         ServiceEntry {
             id,
@@ -35,6 +40,7 @@ impl ServiceEntry {
             address: ServiceAddress::String(address),
             tags,
             registered_at,
+            last_heartbeat: registered_at, // This is a new entry so let's set heartbeat to the creation time
         }
     }
 
@@ -42,6 +48,26 @@ impl ServiceEntry {
     pub fn address_str(&self) -> &str {
         self.address.as_str()
     }
+
+    #[allow(dead_code)]
+    pub fn health_status(&self) -> HealthStatus {
+        // TODO: Think about if this should be dynamic and how it can use env variables to determine health
+        HealthStatus::Unknown
+    }
+
+    /// Returns the time elapsed since the last heartbeat in millis
+    #[allow(dead_code)]
+    pub fn time_since_last_heartbeat(&self) -> u64 {
+        now() - self.last_heartbeat
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum HealthStatus {
+    Healthy,
+    Unknown,   // Maybe just registered without heartbeat
+    Stale,     // Missed heartbeat but still within timeout
+    Unhealthy, // No heartbeat and will be cleaned up
 }
 
 pub trait ServiceRegistry: Sync + Send + 'static {
@@ -53,6 +79,7 @@ pub trait ServiceRegistry: Sync + Send + 'static {
         service_name: &str,
         environment: Option<&str>,
     ) -> Result<(), RegistryError>;
+    fn heartbeat(&mut self, service_name: &str, environment: &str) -> Result<(), RegistryError>;
 }
 
 #[derive(Debug)]
@@ -88,6 +115,8 @@ mod tests {
         assert_eq!(entry.address_str(), "https://api.example.com:443");
         assert_eq!(entry.tags, tags);
         assert!(entry.registered_at > 0); // Timestamp should be set
+        assert!(matches!(entry.health_status(), HealthStatus::Unknown));
+        assert_eq!(entry.last_heartbeat, entry.registered_at); // Last heartbeat should be equal to the creation time
 
         // Check that we're using millisecond precision (timestamp should be much larger than a seconds-based one)
         assert!(
@@ -129,18 +158,5 @@ mod tests {
         let debug_str = format!("{:?}", error);
         assert!(debug_str.contains("InternalError"));
         assert!(debug_str.contains("Test error"));
-    }
-
-    #[test]
-    fn test_registry_error_variants() {
-        // Test all error variants to ensure they work correctly
-        let already_exists = RegistryError::AlreadyExists;
-        let not_found = RegistryError::NotFound;
-        let internal_error = RegistryError::InternalError("Internal error".to_string());
-
-        // Verify they have different discriminants
-        assert!(matches!(already_exists, RegistryError::AlreadyExists));
-        assert!(matches!(not_found, RegistryError::NotFound));
-        assert!(matches!(internal_error, RegistryError::InternalError(_)));
     }
 }

@@ -1,4 +1,4 @@
-use crate::model::service_registry::{RegistryError, ServiceEntry, ServiceRegistry};
+use crate::model::service_registry::{RegistryError, ServiceEntry, ServiceRegistry, now};
 use std::collections::HashMap;
 
 pub struct InMemoryRegistry {
@@ -70,12 +70,28 @@ impl ServiceRegistry for InMemoryRegistry {
 
         Ok(())
     }
+
+    fn heartbeat(&mut self, service_name: &str, environment: &str) -> Result<(), RegistryError> {
+        let mut found = false;
+
+        for service in self.services.values_mut() {
+            if service.service_name == service_name && service.environment == environment {
+                service.last_heartbeat = now();
+                found = true;
+            }
+        }
+
+        if !found {
+            return Err(RegistryError::NotFound);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use std::{sync::Arc, thread::sleep, time::Duration};
     use tokio::sync::RwLock;
 
     fn create_test_entry(name: &str, env: &str) -> ServiceEntry {
@@ -391,5 +407,27 @@ mod tests {
         assert!(registry.resolve("service", "dev").is_empty());
         assert_eq!(registry.resolve("service1", "dev").len(), 1);
         assert_eq!(registry.resolve("service-extended", "dev").len(), 1);
+    }
+
+    #[test]
+    fn test_heartbeat_update() {
+        let mut registry = InMemoryRegistry::new();
+
+        registry
+            .register(create_test_entry("service", "dev"))
+            .unwrap();
+
+        let resolved_service = registry.resolve("service", "dev");
+        let pre_heartbeat_time = resolved_service[0].last_heartbeat;
+
+        sleep(Duration::from_millis(100));
+
+        assert!(resolved_service[0].time_since_last_heartbeat() > 0);
+
+        let _ = registry.heartbeat("service", "dev");
+        let resolved_service = registry.resolve("service", "dev");
+        let post_heartbeat_time = resolved_service[0].last_heartbeat;
+
+        assert!(pre_heartbeat_time < post_heartbeat_time);
     }
 }

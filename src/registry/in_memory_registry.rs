@@ -72,21 +72,18 @@ impl ServiceRegistry for InMemoryRegistry {
     }
 
     fn heartbeat(&mut self, service_name: &str, environment: &str) -> Result<(), RegistryError> {
-        let mut found_services: Vec<_> = self
-            .services
-            .values_mut()
-            .filter(|service| {
-                service.service_name == service_name && service.environment == environment
-            })
-            .collect();
+        let mut found = false;
 
-        if found_services.is_empty() {
-            return Err(RegistryError::NotFound);
+        for service in self.services.values_mut() {
+            if service.service_name == service_name && service.environment == environment {
+                service.last_heartbeat = now();
+                found = true;
+            }
         }
 
-        found_services
-            .iter_mut()
-            .for_each(|service| service.last_heartbeat = now());
+        if !found {
+            return Err(RegistryError::NotFound);
+        }
         Ok(())
     }
 }

@@ -16,3 +16,4 @@ uuid = { version = "1.17.0", features = ["v4"] }
 
 [dev-dependencies]
 tower = "0.5.1"
+serial_test = "3.0"

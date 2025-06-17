@@ -3,9 +3,7 @@ use tokio::sync::RwLock;
 use xolotl::{
     config::HealthConfig,
     health::HealthManager,
-    model::{
-        service_registry::{ServiceEntry, ServiceRegistry},
-    },
+    model::service_registry::{ServiceEntry, ServiceRegistry},
     registry::in_memory_registry::InMemoryRegistry,
 };
 
@@ -20,14 +18,14 @@ fn create_service_entry(name: &str, env: &str, address: &str) -> ServiceEntry {
 
 fn create_old_service_entry(name: &str, env: &str, address: &str, age_ms: u64) -> ServiceEntry {
     use std::time::{SystemTime, UNIX_EPOCH};
-    
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
-    
+
     let old_time = now - age_ms;
-    
+
     ServiceEntry {
         id: format!("{}-{}", name, env),
         service_name: name.to_string(),
@@ -51,8 +49,18 @@ async fn test_health_management_lifecycle() {
     // Register initial services with old timestamps (make them unhealthy)
     {
         let mut reg = registry.write().await;
-        let service1 = create_old_service_entry("api", "prod", "http://api-1:8080", config.stale_threshold_ms + 1000);
-        let service2 = create_old_service_entry("worker", "prod", "http://worker-1:8080", config.stale_threshold_ms + 2000);
+        let service1 = create_old_service_entry(
+            "api",
+            "prod",
+            "http://api-1:8080",
+            config.stale_threshold_ms + 1000,
+        );
+        let service2 = create_old_service_entry(
+            "worker",
+            "prod",
+            "http://worker-1:8080",
+            config.stale_threshold_ms + 2000,
+        );
         reg.register(service1).unwrap();
         reg.register(service2).unwrap();
     }
@@ -71,7 +79,7 @@ async fn test_health_management_lifecycle() {
     let removed_count = HealthManager::cleanup_unhealthy_services(&registry, &config)
         .await
         .unwrap();
-    
+
     assert_eq!(removed_count, 2); // Both services should be cleaned up
 
     // Verify services are removed
@@ -98,7 +106,12 @@ async fn test_service_reregistration_after_cleanup() {
     let environment = "staging";
     {
         let mut reg = registry.write().await;
-        let service = create_old_service_entry(service_name, environment, "http://test:8080", config.stale_threshold_ms + 500);
+        let service = create_old_service_entry(
+            service_name,
+            environment,
+            "http://test:8080",
+            config.stale_threshold_ms + 500,
+        );
         reg.register(service).unwrap();
     }
 
@@ -106,7 +119,7 @@ async fn test_service_reregistration_after_cleanup() {
     let removed_count = HealthManager::cleanup_unhealthy_services(&registry, &config)
         .await
         .unwrap();
-    
+
     assert_eq!(removed_count, 1);
 
     // Verify service is removed
@@ -147,10 +160,10 @@ async fn test_concurrent_cleanup_and_registration() {
         let mut reg = registry.write().await;
         for i in 0..5 {
             let service = create_old_service_entry(
-                &format!("service-{}", i), 
-                "prod", 
+                &format!("service-{}", i),
+                "prod",
                 &format!("http://service-{}:8080", i),
-                config.stale_threshold_ms + 500
+                config.stale_threshold_ms + 500,
             );
             reg.register(service).unwrap();
         }
@@ -160,7 +173,7 @@ async fn test_concurrent_cleanup_and_registration() {
     let registry_clone = registry.clone();
     let registry_clone2 = registry.clone();
     let config_clone = config.clone();
-    
+
     let cleanup_task = tokio::spawn(async move {
         HealthManager::cleanup_unhealthy_services(&registry_clone, &config_clone).await
     });
@@ -173,13 +186,13 @@ async fn test_concurrent_cleanup_and_registration() {
     });
 
     let (cleanup_result, registration_result) = tokio::join!(cleanup_task, registration_task);
-    
+
     assert!(cleanup_result.is_ok());
     assert!(registration_result.is_ok());
-    
+
     let removed_count = cleanup_result.unwrap().unwrap();
     let registered_count = registration_result.unwrap();
-    
+
     assert_eq!(removed_count, 5); // Old services cleaned up
     assert_eq!(registered_count, 1); // New service registered
 
@@ -196,7 +209,7 @@ async fn test_health_status_transitions() {
     let registry: Arc<RwLock<dyn ServiceRegistry>> = Arc::new(RwLock::new(InMemoryRegistry::new()));
     let config = HealthConfig {
         healthy_threshold_ms: 1000, // 1 second
-        stale_threshold_ms: 2000,   // 2 seconds  
+        stale_threshold_ms: 2000,   // 2 seconds
         cleanup_interval_secs: 1,
     };
 
@@ -211,7 +224,12 @@ async fn test_health_status_transitions() {
 
     let stale_service_id = {
         let mut reg = registry.write().await;
-        let service = create_old_service_entry("stale-test", "dev", "http://stale:8080", config.healthy_threshold_ms + 500);
+        let service = create_old_service_entry(
+            "stale-test",
+            "dev",
+            "http://stale:8080",
+            config.healthy_threshold_ms + 500,
+        );
         let id = service.id.clone();
         reg.register(service).unwrap();
         id
@@ -219,7 +237,12 @@ async fn test_health_status_transitions() {
 
     let unhealthy_service_id = {
         let mut reg = registry.write().await;
-        let service = create_old_service_entry("unhealthy-test", "dev", "http://unhealthy:8080", config.stale_threshold_ms + 500);
+        let service = create_old_service_entry(
+            "unhealthy-test",
+            "dev",
+            "http://unhealthy:8080",
+            config.stale_threshold_ms + 500,
+        );
         let id = service.id.clone();
         reg.register(service).unwrap();
         id
@@ -229,29 +252,45 @@ async fn test_health_status_transitions() {
     {
         let reg = registry.read().await;
         let services = reg.list();
-        
-        let healthy_service = services.iter().find(|s| s.id == healthy_service_id).unwrap();
-        assert!(matches!(healthy_service.health_status(&config), xolotl::model::service_registry::HealthStatus::Unknown)); // Just registered
-        
+
+        let healthy_service = services
+            .iter()
+            .find(|s| s.id == healthy_service_id)
+            .unwrap();
+        assert!(matches!(
+            healthy_service.health_status(&config),
+            xolotl::model::service_registry::HealthStatus::Unknown
+        )); // Just registered
+
         let stale_service = services.iter().find(|s| s.id == stale_service_id).unwrap();
-        assert!(matches!(stale_service.health_status(&config), xolotl::model::service_registry::HealthStatus::Stale));
-        
-        let unhealthy_service = services.iter().find(|s| s.id == unhealthy_service_id).unwrap();
-        assert!(matches!(unhealthy_service.health_status(&config), xolotl::model::service_registry::HealthStatus::Unhealthy));
+        assert!(matches!(
+            stale_service.health_status(&config),
+            xolotl::model::service_registry::HealthStatus::Stale
+        ));
+
+        let unhealthy_service = services
+            .iter()
+            .find(|s| s.id == unhealthy_service_id)
+            .unwrap();
+        assert!(matches!(
+            unhealthy_service.health_status(&config),
+            xolotl::model::service_registry::HealthStatus::Unhealthy
+        ));
     }
 
     // Cleanup should remove only the unhealthy service
     let removed_count = HealthManager::cleanup_unhealthy_services(&registry, &config)
         .await
         .unwrap();
-    
+
     assert_eq!(removed_count, 1); // Only unhealthy service should be removed
-    
+
     {
         let reg = registry.read().await;
         let services = reg.list();
         assert_eq!(services.len(), 2); // Healthy and stale should remain
-        let remaining_services: Vec<&str> = services.iter().map(|s| s.service_name.as_str()).collect();
+        let remaining_services: Vec<&str> =
+            services.iter().map(|s| s.service_name.as_str()).collect();
         assert!(remaining_services.contains(&"healthy-test"));
         assert!(remaining_services.contains(&"stale-test"));
         assert!(!remaining_services.contains(&"unhealthy-test"));

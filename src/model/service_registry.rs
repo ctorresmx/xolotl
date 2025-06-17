@@ -2,6 +2,7 @@ use crate::config::HealthConfig;
 use crate::model::service_address::ServiceAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -73,6 +74,17 @@ pub enum HealthStatus {
     Unknown,   // Maybe just registered without heartbeat
     Stale,     // Missed heartbeat but still within timeout
     Unhealthy, // No heartbeat and will be cleaned up
+}
+
+impl fmt::Display for HealthStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HealthStatus::Healthy => write!(f, "Healthy"),
+            HealthStatus::Unknown => write!(f, "Unknown"),
+            HealthStatus::Stale => write!(f, "Stale"),
+            HealthStatus::Unhealthy => write!(f, "Unhealthy"),
+        }
+    }
 }
 
 pub trait ServiceRegistry: Sync + Send + 'static {

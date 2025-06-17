@@ -5,7 +5,11 @@ use registry::in_memory_registry::InMemoryRegistry;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::{config::HealthConfig, health::HealthManager};
+
 mod api;
+mod config;
+mod health;
 mod model;
 mod registry;
 
@@ -22,7 +26,13 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let app = create_app();
+    let health_config = HealthConfig::from_env();
+    let registry = Arc::new(RwLock::new(InMemoryRegistry::new()));
+
+    let health_manager = HealthManager::new(registry.clone(), health_config.clone());
+    let _cleanup_handle = health_manager.start_cleanup_task();
+
+    let app = create_app(registry);
     let bind_address = format!("{}:{}", args.address, args.port);
 
     let listener = match tokio::net::TcpListener::bind(&bind_address).await {
@@ -38,8 +48,7 @@ async fn main() {
         .unwrap();
 }
 
-pub fn create_app() -> Router {
-    let registry = Arc::new(RwLock::new(InMemoryRegistry::new()));
+pub fn create_app(registry: Arc<RwLock<InMemoryRegistry>>) -> Router {
     Router::new()
         .nest("/services", services_routes())
         .with_state(registry)
@@ -51,7 +60,8 @@ mod tests {
 
     #[test]
     fn test_create_app() {
-        let app = create_app();
+        let registry = Arc::new(RwLock::new(InMemoryRegistry::new()));
+        let app = create_app(registry);
 
         // Just verify the app can be created without panicking
         // This tests the initialization and dependency injection

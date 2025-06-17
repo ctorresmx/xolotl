@@ -1,3 +1,4 @@
+use crate::config::HealthConfig;
 use crate::model::service_address::ServiceAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -50,9 +51,13 @@ impl ServiceEntry {
     }
 
     #[allow(dead_code)]
-    pub fn health_status(&self) -> HealthStatus {
-        // TODO: Think about if this should be dynamic and how it can use env variables to determine health
-        HealthStatus::Unknown
+    pub fn health_status(&self, config: &HealthConfig) -> HealthStatus {
+        match self.time_since_last_heartbeat() {
+            0 => HealthStatus::Unknown,
+            time if time <= config.healthy_threshold_ms => HealthStatus::Healthy,
+            time if time <= config.stale_threshold_ms => HealthStatus::Stale,
+            _ => HealthStatus::Unhealthy,
+        }
     }
 
     /// Returns the time elapsed since the last heartbeat in millis
@@ -115,7 +120,10 @@ mod tests {
         assert_eq!(entry.address_str(), "https://api.example.com:443");
         assert_eq!(entry.tags, tags);
         assert!(entry.registered_at > 0); // Timestamp should be set
-        assert!(matches!(entry.health_status(), HealthStatus::Unknown));
+        assert!(matches!(
+            entry.health_status(&HealthConfig::default()),
+            HealthStatus::Unknown
+        ));
         assert_eq!(entry.last_heartbeat, entry.registered_at); // Last heartbeat should be equal to the creation time
 
         // Check that we're using millisecond precision (timestamp should be much larger than a seconds-based one)

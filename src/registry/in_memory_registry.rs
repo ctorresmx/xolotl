@@ -13,6 +13,12 @@ impl InMemoryRegistry {
     }
 }
 
+impl Default for InMemoryRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServiceRegistry for InMemoryRegistry {
     fn list(&self) -> Vec<ServiceEntry> {
         self.services.values().cloned().collect()

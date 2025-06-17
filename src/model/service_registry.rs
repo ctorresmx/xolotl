@@ -311,6 +311,6 @@ mod tests {
         // Test with past time
         entry.last_heartbeat = now() - 5000; // 5 seconds ago
         let elapsed = entry.time_since_last_heartbeat();
-        assert!(elapsed >= 4990 && elapsed <= 5010); // Should be around 5000ms, with some tolerance
+        assert!((4990..=5010).contains(&elapsed)); // Should be around 5000ms, with some tolerance
     }
 }

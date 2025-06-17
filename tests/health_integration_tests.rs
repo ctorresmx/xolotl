@@ -1,6 +1,14 @@
-use std::{collections::HashMap, sync::Arc};
+use axum::{
+    Router,
+    body::Body,
+    http::{Method, Request, StatusCode},
+};
+use serde_json::{Value, json};
+use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration};
 use tokio::sync::RwLock;
+use tower::ServiceExt;
 use xolotl::{
+    api::services::{AppState, services_routes},
     config::HealthConfig,
     health::HealthManager,
     model::service_registry::{ServiceEntry, ServiceRegistry},
@@ -295,4 +303,254 @@ async fn test_health_status_transitions() {
         assert!(remaining_services.contains(&"stale-test"));
         assert!(!remaining_services.contains(&"unhealthy-test"));
     }
+}
+
+// Helper functions for API integration tests
+fn create_test_app_with_config(config: HealthConfig) -> Router {
+    let registry: Arc<RwLock<dyn ServiceRegistry>> = Arc::new(RwLock::new(InMemoryRegistry::new()));
+    let app_state = AppState {
+        service_registry: registry,
+        health_config: config,
+    };
+    services_routes().with_state(app_state)
+}
+
+async fn send_request(app: Router, request: Request<Body>) -> (StatusCode, Value) {
+    let response = app.oneshot(request).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+    (status, json)
+}
+
+#[tokio::test]
+async fn test_api_health_endpoint_with_heartbeat_integration() {
+    let config = HealthConfig {
+        healthy_threshold_ms: 5000, // 5 seconds
+        stale_threshold_ms: 10000,  // 10 seconds
+        cleanup_interval_secs: 30,
+    };
+    let app = create_test_app_with_config(config);
+
+    // Register a service
+    let payload = json!({
+        "service_name": "api-health-test",
+        "environment": "prod",
+        "address": "http://test.example.com:8080"
+    });
+
+    let register_request = Request::builder()
+        .method(Method::POST)
+        .uri("/")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+
+    let (status, _) = send_request(app.clone(), register_request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    sleep(Duration::from_millis(1));
+    let health_request = Request::builder()
+        .method(Method::GET)
+        .uri("/api-health-test/prod/health")
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, response) = send_request(app.clone(), health_request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let services = response.as_array().unwrap();
+    assert_eq!(services.len(), 1);
+    assert_eq!(services[0]["health_status"], "Healthy");
+
+    // Send a heartbeat
+    let heartbeat_payload = json!({
+        "service_name": "api-health-test",
+        "environment": "prod"
+    });
+
+    let heartbeat_request = Request::builder()
+        .method(Method::PUT)
+        .uri("/heartbeat")
+        .header("content-type", "application/json")
+        .body(Body::from(heartbeat_payload.to_string()))
+        .unwrap();
+
+    let (status, _) = send_request(app.clone(), heartbeat_request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let health_request = Request::builder()
+        .method(Method::GET)
+        .uri("/api-health-test/prod/health")
+        .body(Body::empty())
+        .unwrap();
+
+    sleep(Duration::from_millis(1));
+    let (status, response) = send_request(app, health_request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let services = response.as_array().unwrap();
+    assert_eq!(services.len(), 1);
+    assert_eq!(services[0]["health_status"], "Healthy");
+}
+
+#[tokio::test]
+async fn test_api_health_status_transitions_over_time() {
+    let config = HealthConfig {
+        healthy_threshold_ms: 100, // 100ms for faster testing
+        stale_threshold_ms: 200,   // 200ms for faster testing
+        cleanup_interval_secs: 30,
+    };
+    let app = create_test_app_with_config(config);
+
+    // Register a service
+    let payload = json!({
+        "service_name": "transition-test",
+        "environment": "dev",
+        "address": "http://transition.example.com:8080"
+    });
+
+    let register_request = Request::builder()
+        .method(Method::POST)
+        .uri("/")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+
+    send_request(app.clone(), register_request).await;
+
+    // Send heartbeat to make it healthy
+    let heartbeat_payload = json!({
+        "service_name": "transition-test",
+        "environment": "dev"
+    });
+
+    let heartbeat_request = Request::builder()
+        .method(Method::PUT)
+        .uri("/heartbeat")
+        .header("content-type", "application/json")
+        .body(Body::from(heartbeat_payload.to_string()))
+        .unwrap();
+
+    send_request(app.clone(), heartbeat_request).await;
+
+    // Check that it's Unknown (right after heartbeat)
+    let health_request = Request::builder()
+        .method(Method::GET)
+        .uri("/transition-test/dev/health")
+        .body(Body::empty())
+        .unwrap();
+
+    sleep(Duration::from_millis(1));
+    let (status, response) = send_request(app.clone(), health_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let services = response.as_array().unwrap();
+    assert_eq!(services[0]["health_status"], "Healthy");
+
+    // Wait for it to become stale
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+    let health_request = Request::builder()
+        .method(Method::GET)
+        .uri("/transition-test/dev/health")
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, response) = send_request(app.clone(), health_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let services = response.as_array().unwrap();
+    assert_eq!(services[0]["health_status"], "Stale");
+
+    // Wait for it to become unhealthy
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let health_request = Request::builder()
+        .method(Method::GET)
+        .uri("/transition-test/dev/health")
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, response) = send_request(app, health_request).await;
+    assert_eq!(status, StatusCode::OK);
+    let services = response.as_array().unwrap();
+    assert_eq!(services[0]["health_status"], "Unhealthy");
+}
+
+#[tokio::test]
+async fn test_api_heartbeat_and_cleanup_integration() {
+    let config = HealthConfig {
+        healthy_threshold_ms: 100, // 100ms for faster testing
+        stale_threshold_ms: 200,   // 200ms for faster testing
+        cleanup_interval_secs: 1,
+    };
+
+    let registry: Arc<RwLock<dyn ServiceRegistry>> = Arc::new(RwLock::new(InMemoryRegistry::new()));
+    let app_state = AppState {
+        service_registry: registry.clone(),
+        health_config: config.clone(),
+    };
+    let app = services_routes().with_state(app_state);
+
+    // Register a service
+    let payload = json!({
+        "service_name": "cleanup-test",
+        "environment": "staging",
+        "address": "http://cleanup.example.com:8080"
+    });
+
+    let register_request = Request::builder()
+        .method(Method::POST)
+        .uri("/")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+
+    send_request(app.clone(), register_request).await;
+
+    // Send heartbeat to make it healthy
+    let heartbeat_payload = json!({
+        "service_name": "cleanup-test",
+        "environment": "staging"
+    });
+
+    let heartbeat_request = Request::builder()
+        .method(Method::PUT)
+        .uri("/heartbeat")
+        .header("content-type", "application/json")
+        .body(Body::from(heartbeat_payload.to_string()))
+        .unwrap();
+
+    send_request(app.clone(), heartbeat_request).await;
+
+    // Verify service exists and is healthy
+    let get_request = Request::builder()
+        .method(Method::GET)
+        .uri("/cleanup-test/staging")
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, _) = send_request(app.clone(), get_request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Wait for service to become unhealthy
+    tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+
+    // Run cleanup manually
+    let removed_count = HealthManager::cleanup_unhealthy_services(&registry, &config)
+        .await
+        .unwrap();
+
+    assert_eq!(removed_count, 1);
+
+    // Verify service is gone
+    let get_request = Request::builder()
+        .method(Method::GET)
+        .uri("/cleanup-test/staging")
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, _) = send_request(app, get_request).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

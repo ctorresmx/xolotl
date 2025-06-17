@@ -9,7 +9,16 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::model::service_registry::{RegistryError, ServiceEntry, ServiceRegistry};
+use crate::{
+    config::HealthConfig,
+    model::service_registry::{RegistryError, ServiceEntry, ServiceRegistry},
+};
+
+#[derive(Clone)]
+pub struct AppState {
+    pub service_registry: Arc<RwLock<dyn ServiceRegistry>>,
+    pub health_config: HealthConfig,
+}
 
 #[derive(Deserialize)]
 struct ServiceEntryRequest {
@@ -33,10 +42,18 @@ struct HeartbeatRequest {
     environment: String,
 }
 
-pub fn services_routes() -> Router<Arc<RwLock<dyn ServiceRegistry>>> {
+#[derive(Serialize)]
+struct ServiceHealthResponse {
+    service_name: String,
+    environment: String,
+    health_status: String,
+}
+
+pub fn services_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list_services))
         .route("/", post(register_service))
+        .route("/{name}/{environment}/health", get(get_service_health))
         .route("/{name}/{environment}", get(get_service))
         .route(
             "/{name}/{environment}",
@@ -47,10 +64,10 @@ pub fn services_routes() -> Router<Arc<RwLock<dyn ServiceRegistry>>> {
 }
 
 async fn register_heartbeat(
-    State(registry): State<Arc<RwLock<dyn ServiceRegistry>>>,
+    State(app_state): State<AppState>,
     Json(payload): Json<HeartbeatRequest>,
 ) -> Result<Json<String>, StatusCode> {
-    let mut registry = registry.write().await;
+    let mut registry = app_state.service_registry.write().await;
     let heartbeat_result = registry.heartbeat(&payload.service_name, &payload.environment);
 
     match heartbeat_result {
@@ -65,10 +82,8 @@ async fn register_heartbeat(
     }
 }
 
-async fn list_services(
-    State(registry): State<Arc<RwLock<dyn ServiceRegistry>>>,
-) -> Json<Vec<ServiceEntryResponse>> {
-    let registry = registry.read().await;
+async fn list_services(State(app_state): State<AppState>) -> Json<Vec<ServiceEntryResponse>> {
+    let registry = app_state.service_registry.read().await;
     let services = registry
         .list()
         .iter()
@@ -82,11 +97,35 @@ async fn list_services(
     Json(services)
 }
 
+async fn get_service_health(
+    State(app_state): State<AppState>,
+    Path((name, environment)): Path<(String, String)>,
+) -> Result<Json<Vec<ServiceHealthResponse>>, StatusCode> {
+    let registry = app_state.service_registry.read().await;
+    let config = app_state.health_config;
+    let services = registry.resolve(&name, &environment);
+
+    if services.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(Json(
+        services
+            .iter()
+            .map(|internal_entry| ServiceHealthResponse {
+                service_name: internal_entry.service_name.clone(),
+                environment: internal_entry.environment.clone(),
+                health_status: internal_entry.health_status(&config).to_string(),
+            })
+            .collect(),
+    ))
+}
+
 async fn register_service(
-    State(registry): State<Arc<RwLock<dyn ServiceRegistry>>>,
+    State(app_state): State<AppState>,
     Json(payload): Json<ServiceEntryRequest>,
 ) -> Result<Json<String>, StatusCode> {
-    let mut registry = registry.write().await;
+    let mut registry = app_state.service_registry.write().await;
     let service_name = payload.service_name.clone();
     let service_environment = payload.environment.clone();
     let registering_result = registry.register(ServiceEntry::new(
@@ -113,10 +152,10 @@ async fn register_service(
 }
 
 async fn get_service(
-    State(registry): State<Arc<RwLock<dyn ServiceRegistry>>>,
+    State(app_state): State<AppState>,
     Path((name, environment)): Path<(String, String)>,
 ) -> Result<Json<Vec<ServiceEntryResponse>>, StatusCode> {
-    let registry = registry.read().await;
+    let registry = app_state.service_registry.read().await;
     let services = registry.resolve(&name, &environment);
 
     if services.is_empty() {
@@ -137,10 +176,10 @@ async fn get_service(
 }
 
 async fn deregister_service(
-    State(registry): State<Arc<RwLock<dyn ServiceRegistry>>>,
+    State(app_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<String>, StatusCode> {
-    let mut registry = registry.write().await;
+    let mut registry = app_state.service_registry.write().await;
 
     let result = registry.deregister(&name, None);
 
@@ -158,10 +197,10 @@ async fn deregister_service(
 }
 
 async fn deregister_service_in_environment(
-    State(registry): State<Arc<RwLock<dyn ServiceRegistry>>>,
+    State(app_state): State<AppState>,
     Path((name, environment)): Path<(String, String)>,
 ) -> Result<Json<String>, StatusCode> {
-    let mut registry = registry.write().await;
+    let mut registry = app_state.service_registry.write().await;
 
     let result = registry.deregister(&name, Some(&environment));
 
@@ -183,6 +222,8 @@ async fn deregister_service_in_environment(
 
 #[cfg(test)]
 mod tests {
+    use std::{thread::sleep, time::Duration};
+
     use crate::registry::in_memory_registry::InMemoryRegistry;
 
     use super::*;
@@ -196,7 +237,12 @@ mod tests {
 
     fn create_test_app() -> Router {
         let registry = Arc::new(RwLock::new(InMemoryRegistry::new()));
-        services_routes().with_state(registry)
+        let config = HealthConfig::default();
+        let app_state = AppState {
+            service_registry: registry,
+            health_config: config,
+        };
+        services_routes().with_state(app_state)
     }
 
     async fn send_request(app: Router, request: Request<Body>) -> (StatusCode, Value) {
@@ -731,5 +777,93 @@ mod tests {
 
         assert!(addresses.contains(&"http://instance1.example.com:8080"));
         assert!(addresses.contains(&"http://instance2.example.com:8080"));
+    }
+
+    #[tokio::test]
+    async fn test_get_service_health_healthy() {
+        let app = create_test_app();
+
+        // Register a service
+        let payload = json!({
+            "service_name": "healthy-service",
+            "environment": "prod",
+            "address": "http://healthy.example.com:8080"
+        });
+
+        let register_request = Request::builder()
+            .method(Method::POST)
+            .uri("/")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        send_request(app.clone(), register_request).await;
+        sleep(Duration::from_millis(1));
+
+        // Get health status
+        let health_request = Request::builder()
+            .method(Method::GET)
+            .uri("/healthy-service/prod/health")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, response) = send_request(app, health_request).await;
+
+        assert_eq!(status, StatusCode::OK);
+        let services = response.as_array().unwrap();
+        assert_eq!(services.len(), 1);
+        let service = &services[0];
+        assert_eq!(service["service_name"], "healthy-service");
+        assert_eq!(service["environment"], "prod");
+        assert_eq!(service["health_status"], "Healthy");
+    }
+
+    #[tokio::test]
+    async fn test_get_service_health_not_found() {
+        let app = create_test_app();
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/nonexistent-service/prod/health")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, request).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_not_found() {
+        let app = create_test_app();
+
+        let payload = json!({
+            "service_name": "nonexistent-service",
+            "environment": "prod"
+        });
+
+        let request = Request::builder()
+            .method(Method::PUT)
+            .uri("/heartbeat")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        let (status, _) = send_request(app, request).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_invalid_json() {
+        let app = create_test_app();
+
+        let request = Request::builder()
+            .method(Method::PUT)
+            .uri("/heartbeat")
+            .header("content-type", "application/json")
+            .body(Body::from("invalid json"))
+            .unwrap();
+
+        let (status, _) = send_request(app, request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }

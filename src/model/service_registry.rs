@@ -53,7 +53,7 @@ impl ServiceEntry {
     #[allow(dead_code)]
     pub fn health_status(&self, config: &HealthConfig) -> HealthStatus {
         match self.time_since_last_heartbeat() {
-            time if time == 0 => HealthStatus::Unknown,
+            0 => HealthStatus::Unknown,
             time if time <= config.healthy_threshold_ms => HealthStatus::Healthy,
             time if time <= config.stale_threshold_ms => HealthStatus::Stale,
             _ => HealthStatus::Unhealthy,

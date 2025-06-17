@@ -26,23 +26,21 @@ impl HealthConfig {
             healthy_threshold_ms: env::var(HEALTHY_THRESHOLD_NAME)
                 .unwrap_or_else(|_| HEALTHY_THRESHOLD_MS.to_string())
                 .parse()
-                .expect(
-                    format!("{} must be a valid positive number", HEALTHY_THRESHOLD_NAME).as_str(),
-                ),
+                .expect("XOLOTL_HEALTHY_THRESHOLD_MS must be a valid positive number"),
             stale_threshold_ms: env::var(STALE_THRESHOLD_NAME)
                 .unwrap_or_else(|_| STALE_THRESHOLD_MS.to_string())
                 .parse()
-                .expect(
-                    format!("{} must be a valid positive number", STALE_THRESHOLD_NAME).as_str(),
-                ),
+                .expect("XOLOTL_STALE_THRESHOLD_MS must be a valid positive number"),
             cleanup_interval_secs: env::var(CLEANUP_INTERVAL_NAME)
                 .unwrap_or_else(|_| CLEANUP_INTERVAL_SECS.to_string())
                 .parse()
-                .expect(format!("{} must be a positive number", CLEANUP_INTERVAL_NAME).as_str()),
+                .expect("XOLOTL_CLEANUP_INTERVAL_SECS must be a positive number"),
         }
     }
+}
 
-    pub fn default() -> Self {
+impl Default for HealthConfig {
+    fn default() -> Self {
         Self {
             healthy_threshold_ms: HEALTHY_THRESHOLD_MS.parse::<u64>().unwrap(),
             stale_threshold_ms: STALE_THRESHOLD_MS.parse::<u64>().unwrap(),

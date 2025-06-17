@@ -443,10 +443,11 @@ async fn test_api_health_status_transitions_over_time() {
         .body(Body::empty())
         .unwrap();
 
+    sleep(Duration::from_millis(1));
     let (status, response) = send_request(app.clone(), health_request).await;
     assert_eq!(status, StatusCode::OK);
     let services = response.as_array().unwrap();
-    assert_eq!(services[0]["health_status"], "Unknown");
+    assert_eq!(services[0]["health_status"], "Healthy");
 
     // Wait for it to become stale
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;

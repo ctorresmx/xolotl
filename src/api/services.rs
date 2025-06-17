@@ -222,6 +222,8 @@ async fn deregister_service_in_environment(
 
 #[cfg(test)]
 mod tests {
+    use std::{thread::sleep, time::Duration};
+
     use crate::registry::in_memory_registry::InMemoryRegistry;
 
     use super::*;
@@ -775,5 +777,93 @@ mod tests {
 
         assert!(addresses.contains(&"http://instance1.example.com:8080"));
         assert!(addresses.contains(&"http://instance2.example.com:8080"));
+    }
+
+    #[tokio::test]
+    async fn test_get_service_health_healthy() {
+        let app = create_test_app();
+
+        // Register a service
+        let payload = json!({
+            "service_name": "healthy-service",
+            "environment": "prod",
+            "address": "http://healthy.example.com:8080"
+        });
+
+        let register_request = Request::builder()
+            .method(Method::POST)
+            .uri("/")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        send_request(app.clone(), register_request).await;
+        sleep(Duration::from_millis(1));
+
+        // Get health status
+        let health_request = Request::builder()
+            .method(Method::GET)
+            .uri("/healthy-service/prod/health")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, response) = send_request(app, health_request).await;
+
+        assert_eq!(status, StatusCode::OK);
+        let services = response.as_array().unwrap();
+        assert_eq!(services.len(), 1);
+        let service = &services[0];
+        assert_eq!(service["service_name"], "healthy-service");
+        assert_eq!(service["environment"], "prod");
+        assert_eq!(service["health_status"], "Healthy");
+    }
+
+    #[tokio::test]
+    async fn test_get_service_health_not_found() {
+        let app = create_test_app();
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/nonexistent-service/prod/health")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, request).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_not_found() {
+        let app = create_test_app();
+
+        let payload = json!({
+            "service_name": "nonexistent-service",
+            "environment": "prod"
+        });
+
+        let request = Request::builder()
+            .method(Method::PUT)
+            .uri("/heartbeat")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        let (status, _) = send_request(app, request).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_invalid_json() {
+        let app = create_test_app();
+
+        let request = Request::builder()
+            .method(Method::PUT)
+            .uri("/heartbeat")
+            .header("content-type", "application/json")
+            .body(Body::from("invalid json"))
+            .unwrap();
+
+        let (status, _) = send_request(app, request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }

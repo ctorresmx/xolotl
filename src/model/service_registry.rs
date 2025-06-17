@@ -51,7 +51,6 @@ impl ServiceEntry {
         self.address.as_str()
     }
 
-    #[allow(dead_code)]
     pub fn health_status(&self, config: &HealthConfig) -> HealthStatus {
         match self.time_since_last_heartbeat() {
             0 => HealthStatus::Unknown,
@@ -178,5 +177,140 @@ mod tests {
         let debug_str = format!("{:?}", error);
         assert!(debug_str.contains("InternalError"));
         assert!(debug_str.contains("Test error"));
+    }
+
+    #[test]
+    fn test_health_status_with_default_config() {
+        let config = HealthConfig::default();
+        let mut entry = ServiceEntry::new(
+            "test-service".to_string(),
+            "prod".to_string(),
+            "http://test.example.com".to_string(),
+            HashMap::new(),
+        );
+
+        // Test Unknown status (last_heartbeat == registered_at)
+        assert!(matches!(
+            entry.health_status(&config),
+            HealthStatus::Unknown
+        ));
+
+        // Test Healthy status (within healthy threshold)
+        entry.last_heartbeat = now() - 30000; // 30 seconds ago
+        assert!(matches!(
+            entry.health_status(&config),
+            HealthStatus::Healthy
+        ));
+
+        // Test Stale status (beyond healthy but within stale threshold)
+        entry.last_heartbeat = now() - 75000; // 75 seconds ago
+        assert!(matches!(entry.health_status(&config), HealthStatus::Stale));
+
+        // Test Unhealthy status (beyond stale threshold)
+        entry.last_heartbeat = now() - 120000; // 120 seconds ago
+        assert!(matches!(
+            entry.health_status(&config),
+            HealthStatus::Unhealthy
+        ));
+    }
+
+    #[test]
+    fn test_health_status_with_custom_config() {
+        let config = HealthConfig {
+            healthy_threshold_ms: 10000, // 10 seconds
+            stale_threshold_ms: 20000,   // 20 seconds
+            cleanup_interval_secs: 30,
+        };
+
+        let mut entry = ServiceEntry::new(
+            "test-service".to_string(),
+            "prod".to_string(),
+            "http://test.example.com".to_string(),
+            HashMap::new(),
+        );
+
+        // Test Healthy status (within custom healthy threshold)
+        entry.last_heartbeat = now() - 5000; // 5 seconds ago
+        assert!(matches!(
+            entry.health_status(&config),
+            HealthStatus::Healthy
+        ));
+
+        // Test Stale status (beyond healthy but within custom stale threshold)
+        entry.last_heartbeat = now() - 15000; // 15 seconds ago
+        assert!(matches!(entry.health_status(&config), HealthStatus::Stale));
+
+        // Test Unhealthy status (beyond custom stale threshold)
+        entry.last_heartbeat = now() - 25000; // 25 seconds ago
+        assert!(matches!(
+            entry.health_status(&config),
+            HealthStatus::Unhealthy
+        ));
+    }
+
+    #[test]
+    fn test_health_status_boundary_conditions() {
+        let config = HealthConfig {
+            healthy_threshold_ms: 10000,
+            stale_threshold_ms: 20000,
+            cleanup_interval_secs: 30,
+        };
+
+        let mut entry = ServiceEntry::new(
+            "test-service".to_string(),
+            "prod".to_string(),
+            "http://test.example.com".to_string(),
+            HashMap::new(),
+        );
+
+        // Test exact boundary: healthy threshold
+        entry.last_heartbeat = now() - 10000; // Exactly 10 seconds ago
+        assert!(matches!(
+            entry.health_status(&config),
+            HealthStatus::Healthy
+        ));
+
+        // Test just past healthy threshold
+        entry.last_heartbeat = now() - 10001; // Just over 10 seconds ago
+        assert!(matches!(entry.health_status(&config), HealthStatus::Stale));
+
+        // Test exact boundary: stale threshold
+        entry.last_heartbeat = now() - 20000; // Exactly 20 seconds ago
+        assert!(matches!(entry.health_status(&config), HealthStatus::Stale));
+
+        // Test just past stale threshold
+        entry.last_heartbeat = now() - 20001; // Just over 20 seconds ago
+        assert!(matches!(
+            entry.health_status(&config),
+            HealthStatus::Unhealthy
+        ));
+    }
+
+    #[test]
+    fn test_health_status_display_formatting() {
+        assert_eq!(HealthStatus::Healthy.to_string(), "Healthy");
+        assert_eq!(HealthStatus::Unknown.to_string(), "Unknown");
+        assert_eq!(HealthStatus::Stale.to_string(), "Stale");
+        assert_eq!(HealthStatus::Unhealthy.to_string(), "Unhealthy");
+    }
+
+    #[test]
+    fn test_time_since_last_heartbeat() {
+        let mut entry = ServiceEntry::new(
+            "test-service".to_string(),
+            "prod".to_string(),
+            "http://test.example.com".to_string(),
+            HashMap::new(),
+        );
+
+        // Test with current time (should be approximately 0)
+        entry.last_heartbeat = now();
+        let elapsed = entry.time_since_last_heartbeat();
+        assert!(elapsed < 10); // Should be very small, account for execution time
+
+        // Test with past time
+        entry.last_heartbeat = now() - 5000; // 5 seconds ago
+        let elapsed = entry.time_since_last_heartbeat();
+        assert!(elapsed >= 4990 && elapsed <= 5010); // Should be around 5000ms, with some tolerance
     }
 }
